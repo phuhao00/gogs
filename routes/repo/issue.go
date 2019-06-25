@@ -91,6 +91,7 @@ func RetrieveLabels(c *context.Context) {
 }
 
 func issues(c *context.Context, isPullList bool) {
+	fmt.Println("fsdfasfdf----+++++++++++++++++++++++++------------")
 	if isPullList {
 		MustAllowPulls(c)
 		if c.Written() {
@@ -110,7 +111,7 @@ func issues(c *context.Context, isPullList bool) {
 
 	viewType := c.Query("type")
 	sortType := c.Query("sort")
-	types := []string{"assigned", "created_by", "mentioned"}
+	types := []string{"assigned", "created_by", "mentioned","collected"}
 	if !com.IsSliceContainsStr(types, viewType) {
 		viewType = "all"
 	}
@@ -136,9 +137,11 @@ func issues(c *context.Context, isPullList bool) {
 		posterID = c.User.ID
 	case "mentioned":
 		filterMode = models.FILTER_MODE_MENTION
+	case "collected":
+		//filterMode = models.FILTER_MODE_COLLECT
 	}
-
 	var uid int64 = -1
+
 	if c.IsLogged {
 		uid = c.User.ID
 	}
@@ -188,7 +191,10 @@ func issues(c *context.Context, isPullList bool) {
 		c.Handle(500, "Issues", err)
 		return
 	}
-
+	for _, value := range issues {
+		fmt.Println(value.CollectedUsers)
+		fmt.Println("fsdfasfdf-----------------------------------------")
+	}
 	// Get issue-user relations.
 	pairs, err := models.GetIssueUsers(repo.ID, posterID, isShowClosed)
 	if err != nil {
@@ -237,7 +243,8 @@ func issues(c *context.Context, isPullList bool) {
 	c.Data["SortType"] = sortType
 	c.Data["MilestoneID"] = milestoneID
 	c.Data["AssigneeID"] = assigneeID
-	c.Data["IsShowClosed"] = isShowClosed
+	c.Data["IsShowClosed"] =isShowClosed
+
 	if isShowClosed {
 		c.Data["State"] = "closed"
 	} else {
@@ -667,8 +674,13 @@ func viewIssue(c *context.Context, isPullList bool) {
 	c.Data["Participants"] = participants
 	c.Data["NumParticipants"] = len(participants)
 	c.Data["Issue"] = issue
+	fmt.Println(issue)
 	c.Data["IsIssueOwner"] = c.Repo.IsWriter() || (c.IsLogged && issue.IsPoster(c.User.ID))
 	c.Data["SignInLink"] = setting.AppSubURL + "/user/login?redirect_to=" + c.Data["Link"].(string)
+	c.Data["CollectedNum"]=issue.CollectedNum
+	c.Data["BaseTestNum"]=issue.BaseTestNum
+	c.Data["EdgeTestNum"]=issue.EdgeTestNum
+	c.Data["IsCertain"]=issue.IsCertain
 	c.HTML(200, ISSUE_VIEW)
 }
 

@@ -61,7 +61,7 @@ func (c *FileCacher) filepath(key string) string {
 }
 
 // Put puts value into cache with key and expire time.
-// If expired is 0, it will not be deleted by GC.
+// If expired is 0, it will be deleted by next GC operation.
 func (c *FileCacher) Put(key string, val interface{}, expire int64) error {
 	filename := c.filepath(key)
 	item := &Item{val, time.Now().Unix(), expire}

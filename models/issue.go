@@ -6,6 +6,7 @@ package models
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +41,7 @@ type Issue struct {
 	Milestone       *Milestone `xorm:"-" json:"-"`
 	Priority        int
 	AssigneeID      int64
+	CollectedID		int64
 	Assignee        *User `xorm:"-" json:"-"`
 	IsClosed        bool
 	IsRead          bool         `xorm:"-" json:"-"`
@@ -56,6 +58,12 @@ type Issue struct {
 
 	Attachments []*Attachment `xorm:"-" json:"-"`
 	Comments    []*Comment    `xorm:"-" json:"-"`
+
+	CollectedNum int64
+	BaseTestNum int64
+	EdgeTestNum int64
+	IsCertain	bool
+	CollectedUsers string
 }
 
 func (issue *Issue) BeforeInsert() {
@@ -876,6 +884,7 @@ type IssuesOptions struct {
 	RepoID      int64
 	PosterID    int64
 	MilestoneID int64
+	CollectedID int64
 	RepoIDs     []int64
 	Page        int
 	IsClosed    bool
@@ -883,6 +892,7 @@ type IssuesOptions struct {
 	IsPull      bool
 	Labels      string
 	SortType    string
+	CollectedTag bool
 }
 
 // buildIssuesQuery returns nil if it foresees there won't be any value returned.
@@ -1122,6 +1132,8 @@ func GetIssueUserPairsByMode(userID, repoID int64, filterMode FilterMode, isClos
 		sess.And("is_assigned=?", true)
 	case FILTER_MODE_CREATE:
 		sess.And("is_poster=?", true)
+	case FILTER_MODE_COLLECTE:
+		sess.And("is_collected=?", true)
 	default:
 		return ius, nil
 	}
@@ -1179,6 +1191,7 @@ type IssueStats struct {
 	AssignCount            int64
 	CreateCount            int64
 	MentionCount           int64
+	CollectedCount			int64
 }
 
 type FilterMode string
@@ -1188,6 +1201,7 @@ const (
 	FILTER_MODE_ASSIGN     FilterMode = "assigned"
 	FILTER_MODE_CREATE     FilterMode = "created_by"
 	FILTER_MODE_MENTION    FilterMode = "mentioned"
+	FILTER_MODE_COLLECTE   FilterMode = "collected"
 )
 
 func parseCountResult(results []map[string][]byte) int64 {
@@ -1205,6 +1219,7 @@ type IssueStatsOptions struct {
 	UserID      int64
 	Labels      string
 	MilestoneID int64
+	CollectedID int64
 	AssigneeID  int64
 	FilterMode  FilterMode
 	IsPull      bool
@@ -1268,6 +1283,15 @@ func GetIssueStats(opts *IssueStatsOptions) *IssueStats {
 			And("issue_user.is_mentioned = ?", true).
 			And("issue.is_closed = ?", true).
 			Count(new(Issue))
+	case FILTER_MODE_COLLECTE:
+		stats.OpenCount, _ = countSession(opts).
+			And("collected_id = ?", opts.UserID).
+			And("is_closed = ?", false).
+			Count(new(Issue))
+		stats.ClosedCount, _ = countSession(opts).
+			And("collected_id = ?", opts.UserID).
+			And("is_closed = ?", true).
+			Count(new(Issue))
 	}
 	return stats
 }
@@ -1295,7 +1319,27 @@ func GetUserIssueStats(repoID, userID int64, repoIDs []int64, filterMode FilterM
 	stats.CreateCount, _ = countSession(false, isPull, repoID, nil).
 		And("poster_id = ?", userID).
 		Count(new(Issue))
-
+	//--------------------
+	countCollectedCount:= func(isClosed ,isPull bool, repoID int64) int64 {
+		var CollectedCount int64
+		countSession(isClosed, isPull, repoID, nil).
+			Iterate((new(Issue)), func(i int, bean interface{})error{
+				issue := bean.(*Issue)
+				var tmpStr string
+				tmpStr=strconv.FormatInt(int64(userID), 10)
+				if len(strings.Split(issue.CollectedUsers, ","))>1 {
+					tmpStr=tmpStr+","
+				}
+				isContain:=strings.Contains(issue.CollectedUsers,tmpStr)
+				if isContain {
+					CollectedCount++
+				}
+				return nil
+			})
+		return CollectedCount
+	}
+	stats.CollectedCount = countCollectedCount(false, isPull, repoID)
+	//---------------------
 	if hasAnyRepo {
 		stats.YourReposCount, _ = countSession(false, isPull, repoID, repoIDs).
 			Count(new(Issue))
@@ -1325,6 +1369,11 @@ func GetUserIssueStats(repoID, userID int64, repoIDs []int64, filterMode FilterM
 		stats.ClosedCount, _ = countSession(true, isPull, repoID, nil).
 			And("poster_id = ?", userID).
 			Count(new(Issue))
+	case FILTER_MODE_COLLECTE:
+
+		stats.OpenCount  =  countCollectedCount(false, isPull, repoID)
+
+		stats.ClosedCount = countCollectedCount(true, isPull, repoID)
 	}
 
 	return stats
@@ -1339,9 +1388,28 @@ func GetRepoIssueStats(repoID, userID int64, filterMode FilterMode, isPull bool)
 
 		return sess
 	}
+	countCollectedCount:= func(isClosed ,isPull bool, repoID int64) int64 {
+		var CollectedCount int64
+		countSession(isClosed, isPull, repoID).
+			Iterate((new(Issue)), func(i int, bean interface{})error{
+				issue := bean.(*Issue)
+				var tmpStr string
+				tmpStr=strconv.FormatInt(int64(userID), 10)
+				if len(strings.Split(issue.CollectedUsers, ","))>1 {
+					tmpStr=tmpStr+","
+				}
+				isContain:=strings.Contains(issue.CollectedUsers,tmpStr)
+				if isContain {
+					CollectedCount++
+				}
+				return nil
+			})
+		return CollectedCount
+	}
 
 	openCountSession := countSession(false, isPull, repoID)
 	closedCountSession := countSession(true, isPull, repoID)
+
 
 	switch filterMode {
 	case FILTER_MODE_ASSIGN:
@@ -1350,6 +1418,10 @@ func GetRepoIssueStats(repoID, userID int64, filterMode FilterMode, isPull bool)
 	case FILTER_MODE_CREATE:
 		openCountSession.And("poster_id = ?", userID)
 		closedCountSession.And("poster_id = ?", userID)
+	case FILTER_MODE_COLLECTE:
+		openResult := countCollectedCount(false, isPull, repoID)
+		closedResult := countCollectedCount(true, isPull, repoID)
+		return openResult,closedResult
 	}
 
 	openResult, _ := openCountSession.Count(new(Issue))

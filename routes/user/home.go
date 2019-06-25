@@ -7,8 +7,10 @@ package user
 import (
 	"bytes"
 	"fmt"
+	"strconv"
+	"strings"
 
-	"github.com/Unknwon/com"
+	//"github.com/Unknwon/com"
 	"github.com/Unknwon/paginater"
 
 	"github.com/gogs/gogs/models"
@@ -178,7 +180,6 @@ func Issues(c *context.Context) {
 	if c.Written() {
 		return
 	}
-
 	var (
 		sortType   = c.Query("sort")
 		filterMode = models.FILTER_MODE_YOUR_REPOS
@@ -187,17 +188,19 @@ func Issues(c *context.Context) {
 	// Note: Organization does not have view type and filter mode.
 	if !ctxUser.IsOrganization() {
 		viewType := c.Query("type")
-		types := []string{
-			string(models.FILTER_MODE_YOUR_REPOS),
-			string(models.FILTER_MODE_ASSIGN),
-			string(models.FILTER_MODE_CREATE),
-		}
-		if !com.IsSliceContainsStr(types, viewType) {
-			viewType = string(models.FILTER_MODE_YOUR_REPOS)
-		}
+		//types := []string{
+		//	string(models.FILTER_MODE_YOUR_REPOS),
+		//	string(models.FILTER_MODE_ASSIGN),
+		//	string(models.FILTER_MODE_CREATE),
+		//	string(models.FILTER_MODE_MENTION),
+		//	//string(models.FILTER_MODE_COLLECT),
+		//
+		//}
+		//if !com.IsSliceContainsStr(types, viewType) {
+		//	viewType = string(models.FILTER_MODE_YOUR_REPOS)
+		//}
 		filterMode = models.FilterMode(viewType)
 	}
-
 	page := c.QueryInt("page")
 	if page <= 1 {
 		page = 1
@@ -226,7 +229,6 @@ func Issues(c *context.Context) {
 		}
 		repos = ctxUser.Repos
 	}
-
 	userRepoIDs = make([]int64, 0, len(repos))
 	for _, repo := range repos {
 		userRepoIDs = append(userRepoIDs, repo.ID)
@@ -259,7 +261,6 @@ func Issues(c *context.Context) {
 			return
 		}
 	}
-
 	issueOptions := &models.IssuesOptions{
 		RepoID:   repoID,
 		Page:     page,
@@ -267,6 +268,7 @@ func Issues(c *context.Context) {
 		IsPull:   isPullList,
 		SortType: sortType,
 	}
+
 	switch filterMode {
 	case models.FILTER_MODE_YOUR_REPOS:
 		// Get all issues from repositories from this user.
@@ -275,7 +277,6 @@ func Issues(c *context.Context) {
 		} else {
 			issueOptions.RepoIDs = userRepoIDs
 		}
-
 	case models.FILTER_MODE_ASSIGN:
 		// Get all issues assigned to this user.
 		issueOptions.AssigneeID = ctxUser.ID
@@ -283,14 +284,29 @@ func Issues(c *context.Context) {
 	case models.FILTER_MODE_CREATE:
 		// Get all issues created by this user.
 		issueOptions.PosterID = ctxUser.ID
+	default:
+		issueOptions.CollectedTag=true
 	}
-
+	fmt.Println( issueOptions.CollectedTag)
 	issues, err := models.Issues(issueOptions)
 	if err != nil {
 		c.Handle(500, "Issues", err)
 		return
 	}
-
+	var tmpIssues []*models.Issue
+	for _, value := range issues {
+		var containStr string
+		containStr=strconv.FormatInt(ctxUser.ID, 10)
+		fmt.Println(ctxUser.ID)
+		CollectedCount:= len(strings.Split(value.CollectedUsers, ","))
+		if CollectedCount>1{
+			containStr=containStr+","
+		}
+		if strings.Contains(value.CollectedUsers,containStr) {
+			tmpIssues=append(tmpIssues,value)
+		}
+	}
+	issues=tmpIssues
 	if repoID > 0 {
 		repo, err := models.GetRepositoryByID(repoID)
 		if err != nil {

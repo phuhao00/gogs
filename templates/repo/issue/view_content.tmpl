@@ -372,6 +372,26 @@
 					{{end}}
 				</div>
 			</div>
+			<div class="ui divider"></div>
+			<div class="ui participants">
+				<span class="text"><strong>{{.i18n.Tr "repo.issues.num_collect" .CollectedNum}}</strong></span>
+			</div>
+			<div class="ui divider"></div>
+			<div class="ui participants">
+				<span class="text"><strong>{{.i18n.Tr "repo.issues.num_test_level_base" .BaseTestNum}}</strong></span>
+			</div>
+			<div class="ui divider"></div>
+			<div class="ui participants">
+				<span class="text"><strong>{{.i18n.Tr "repo.issues.num_test_level_edge" .EdgeTestNum}}</strong></span>
+			</div>
+			<div class="ui divider"></div>
+			<div class="ui participants">
+				{{if .IsCertain}}
+				<span class="text"><strong>{{.i18n.Tr "repo.issues.certain" }}</strong></span>
+				{{else}}
+				<span class="text"><strong>{{.i18n.Tr "repo.issues.accidental" }}</strong></span>
+				{{end}}
+			</div>
 		</div>
 	</div>
 </div>
