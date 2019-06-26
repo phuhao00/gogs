@@ -7,6 +7,7 @@ package user
 import (
 	"bytes"
 	"fmt"
+	"github.com/Unknwon/com"
 	"strconv"
 	"strings"
 
@@ -188,17 +189,16 @@ func Issues(c *context.Context) {
 	// Note: Organization does not have view type and filter mode.
 	if !ctxUser.IsOrganization() {
 		viewType := c.Query("type")
-		//types := []string{
-		//	string(models.FILTER_MODE_YOUR_REPOS),
-		//	string(models.FILTER_MODE_ASSIGN),
-		//	string(models.FILTER_MODE_CREATE),
-		//	string(models.FILTER_MODE_MENTION),
-		//	//string(models.FILTER_MODE_COLLECT),
-		//
-		//}
-		//if !com.IsSliceContainsStr(types, viewType) {
-		//	viewType = string(models.FILTER_MODE_YOUR_REPOS)
-		//}
+		types := []string{
+			string(models.FILTER_MODE_YOUR_REPOS),
+			string(models.FILTER_MODE_ASSIGN),
+			string(models.FILTER_MODE_CREATE),
+			string(models.FILTER_MODE_MENTION),
+			string(models.FILTER_MODE_COLLECTE),
+		}
+		if !com.IsSliceContainsStr(types, viewType) {
+			viewType = string(models.FILTER_MODE_YOUR_REPOS)
+		}
 		filterMode = models.FilterMode(viewType)
 	}
 	page := c.QueryInt("page")
@@ -284,26 +284,33 @@ func Issues(c *context.Context) {
 	case models.FILTER_MODE_CREATE:
 		// Get all issues created by this user.
 		issueOptions.PosterID = ctxUser.ID
+	case models.FILTER_MODE_COLLECTE:
+		issueOptions.CollectedTag=true
 	default:
 		issueOptions.CollectedTag=true
 	}
 
-	issues, err := models.Issues(issueOptions)
+	var issues,collectedIssues []*models.Issue
+
+	collectedIssues, err=models.IssuesCollected(issueOptions)
+	issues, err= models.Issues(issueOptions)
+
 	if err != nil {
 		c.Handle(500, "Issues", err)
 		return
 	}
-	if issueOptions.CollectedTag{
-		var tmpIssues []*models.Issue
-		for _, issue := range issues {
-			CollectedArr:= strings.Split(issue.CollectedUsers, ",")
-			for _, value := range CollectedArr {
-				Id,_:=strconv.ParseInt(value,10,64)
-				if Id==ctxUser.ID {
-					tmpIssues=append(tmpIssues,issue)
-				}
+	var tmpIssues []*models.Issue
+	for _, issue := range collectedIssues {
+		CollectedArr:= strings.Split(issue.CollectedUsers, ",")
+		for _, value := range CollectedArr {
+			Id,_:=strconv.ParseInt(value,10,64)
+			if Id==ctxUser.ID {
+				tmpIssues=append(tmpIssues,issue)
 			}
 		}
+	}
+
+	if issueOptions.CollectedTag {
 		issues=tmpIssues
 	}
 	if repoID > 0 {
@@ -324,7 +331,7 @@ func Issues(c *context.Context) {
 			return
 		}
 	}
-
+	var CollectedNum int64
 	for _, issue := range issues {
 		if err = issue.Repo.GetOwner(); err != nil {
 			c.Handle(500, "GetOwner", fmt.Errorf("[#%d] %v", issue.RepoID, err))
@@ -333,7 +340,7 @@ func Issues(c *context.Context) {
 		CollectedArr:= strings.Split(issue.CollectedUsers, ",")
 		for _, value := range CollectedArr {
 			if value!="" {
-				issue.CollectedNum++
+				CollectedNum++
 			}
 		}
 	}
@@ -346,7 +353,9 @@ func Issues(c *context.Context) {
 	} else {
 		total = int(issueStats.ClosedCount)
 	}
-
+	//issueStats.CollectedCount=int64(len(tmpIssues))
+	fmt.Print("issueStats.CollectedCount:")
+	fmt.Println(issueStats.CollectedCount)
 	c.Data["Issues"] = issues
 	c.Data["Repos"] = showRepos
 	c.Data["Page"] = paginater.New(total, setting.UI.IssuePagingNum, page, 5)

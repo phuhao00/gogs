@@ -360,11 +360,28 @@
 				</div>
 			</div>
 			<div class="ui divider"></div>
-			<div style="color: #c71f7e" >
-				<a class="ui label center"  href="{{$.RepoLink}}/issues/{{$.Issue.Index}}/collected">{{$.i18n.Tr "repo.issues.collected"}}</a>
+			<div>
+			<form action="{{$.RepoLink}}/issues/{{$.Issue.Index}}/FormSubmit">
+				基本测试次数:
+				<input type="text" name="BaseTest" style="max-width: 3rem"/>
+				<br/>
+				<br/>
+				边界测试次数:
+				<input type="text" name="EdgeTest" style="max-width: 3rem"/>
+				<br/><br/>
+				必然bug:&nbsp; &nbsp;  <input type="checkbox" name="IsCertainBug" style="border-color: #0ea432"/>
+				<br/>
+				<br/>
+				<input type="submit" class="ui green button" style="margin-left: 7rem"/>
+			</form>
 			</div>
+			{{if .NotCollected}}
 			<div class="ui divider"></div>
-
+			<div class="ui green large label">
+				<a  href="{{$.RepoLink}}/issues/{{$.Issue.Index}}/collected">{{$.i18n.Tr "repo.issues.collected"}}</a>
+			</div>
+			{{end}}
+			<div class="ui divider"></div>
 			<div class="ui participants">
 				<span class="text"><strong>{{.i18n.Tr "repo.issues.num_participants" .NumParticipants}}</strong></span>
 				<div>

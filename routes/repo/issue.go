@@ -25,6 +25,7 @@ import (
 	"github.com/gogs/gogs/pkg/setting"
 	"github.com/gogs/gogs/pkg/template"
 	"github.com/gogs/gogs/pkg/tool"
+	"strconv"
 )
 
 const (
@@ -38,6 +39,7 @@ const (
 	MILESTONE_NEW  = "repo/issue/milestone_new"
 	MILESTONE_EDIT = "repo/issue/milestone_edit"
 	ISSUE_TEMPLATE_KEY = "IssueTemplate"
+	UserIssue="user/dashboard/issues"
 )
 
 var (
@@ -136,7 +138,7 @@ func issues(c *context.Context, isPullList bool) {
 	case "mentioned":
 		filterMode = models.FILTER_MODE_MENTION
 	case "collected":
-
+		filterMode = models.FILTER_MODE_COLLECTE
 	}
 	var uid int64 = -1
 
@@ -520,13 +522,18 @@ func viewIssue(c *context.Context, isPullList bool) {
 		return
 	}
 	collectedArr:=strings.Split(issue.CollectedUsers,",")
+	var CollectedNum int64
 	for _,val:=range collectedArr{
 		if val!="" {
-			issue.CollectedNum++
+			CollectedNum++
+			value,_:=strconv.ParseInt(val,10,64)
+			if value==c.User.ID{
+				c.Data["NotCollected"]=false
+			}
 		}
+
 	}
 	c.Data["Title"] = issue.Title
-
 	// Make sure type and URL matches.
 	if !isPullList && issue.IsPull {
 		c.Redirect(c.Repo.RepoLink + "/pulls/" + com.ToStr(issue.Index))
@@ -674,13 +681,16 @@ func viewIssue(c *context.Context, isPullList bool) {
 	c.Data["Participants"] = participants
 	c.Data["NumParticipants"] = len(participants)
 	c.Data["Issue"] = issue
-	fmt.Println(issue)
 	c.Data["IsIssueOwner"] = c.Repo.IsWriter() || (c.IsLogged && issue.IsPoster(c.User.ID))
 	c.Data["SignInLink"] = setting.AppSubURL + "/user/login?redirect_to=" + c.Data["Link"].(string)
-	c.Data["CollectedNum"]=issue.CollectedNum
+	c.Data["CollectedNum"]=CollectedNum
 	c.Data["BaseTestNum"]=issue.BaseTestNum
 	c.Data["EdgeTestNum"]=issue.EdgeTestNum
-	c.Data["IsCertain"]=issue.IsCertain
+	if issue.IsCertain==1 {
+		c.Data["IsCertain"]=true
+	}else {
+		c.Data["IsCertain"]=false
+	}
 	c.HTML(200, ISSUE_VIEW)
 }
 
@@ -826,7 +836,6 @@ func UpdateIssueMilestone(c *context.Context) {
 }
 
 func UpdateIssueAssignee(c *context.Context) {
-	fmt.Println("kkkkkkkkkkkkkkkkk")
 	issue := getActionIssue(c)
 	if c.Written() {
 		return
@@ -850,19 +859,46 @@ func UpdateIssueAssignee(c *context.Context) {
 	})
 }
 
+func UpdateIssueOthers(c *context.Context) {
+	issue := getActionIssue(c)
+	if c.Written() {
+		return
+	}
+	BaseTest:=c.Query("BaseTest")
+	EdgeTest:=c.Query("EdgeTest")
+	IsCertainBug:=c.Query("IsCertainBug")
+	fmt.Println(BaseTest)
+	fmt.Println(EdgeTest)
+	fmt.Println(IsCertainBug)
+	base,_:=strconv.ParseInt(BaseTest,10,64)
+	edge,_:=strconv.ParseInt(EdgeTest,10,64)
+
+	var tagCertainBug bool
+	if IsCertainBug!="" {
+		tagCertainBug=true
+	}
+	if err := issue.ChangeOthers(c.User,base,edge,tagCertainBug); err != nil {
+		c.Handle(500, "UpdateCollectedUsers", err)
+		return
+	}
+	c.RawRedirect( "user/dashboard/issues",200)
+}
+
 func UpdateIssueCollectedUsers(c *context.Context) {
 	issue := getActionIssue(c)
 	if c.Written() {
 		return
 	}
-	fmt.Println( issue.ID)
-	if err := issue.ChangeCollectedUsers(c.User, issue.ID); err != nil {
+	if err := issue.ChangeCollectedUsers(c.User); err != nil {
 		c.Handle(500, "UpdateCollectedUsers", err)
 		return
 	}
-	c.JSON(200, map[string]interface{}{
-		"ok": true,
-	})
+	//Index:=strings.LastIndex(c.Link,"/")
+	//tmp:=ISSUE_VIEW[:Index]
+	c.RawRedirect( "user/dashboard/issues",200)
+	//c.JSON(200, map[string]interface{}{
+	//	"ok": true,
+	//})
 }
 
 func NewComment(c *context.Context, f form.CreateComment) {

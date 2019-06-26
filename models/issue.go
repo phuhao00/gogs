@@ -62,7 +62,7 @@ type Issue struct {
 	CollectedNum int64
 	BaseTestNum int64
 	EdgeTestNum int64
-	IsCertain	bool
+	IsCertain	int
 	CollectedUsers string
 }
 
@@ -601,9 +601,15 @@ func (issue *Issue) ChangeContent(doer *User, content string) (err error) {
 	return nil
 }
 
-func (issue *Issue)ChangeCollectedUsers(doer *User, userId int64) (err error) {
+func (issue *Issue)ChangeOthers(doer *User,baseTest,edgeTest int64,isCertainBug bool) (err error) {
+	if err:=UpdateIssueUserOthers(issue,doer.ID,baseTest,edgeTest,isCertainBug);err != nil  {
+		return fmt.Errorf("UpdateIssueUserByCollected: %v", err)
+	}
+	return nil
+}
 
-	if err:=UpdateIssueUserByCollected(issue,userId);err != nil  {
+func (issue *Issue)ChangeCollectedUsers(doer *User) (err error) {
+	if err:=UpdateIssueUserByCollected(issue,doer.ID);err != nil  {
 		return fmt.Errorf("UpdateIssueUserByCollected: %v", err)
 	}
 	return nil
@@ -892,7 +898,6 @@ type IssuesOptions struct {
 	RepoID      int64
 	PosterID    int64
 	MilestoneID int64
-	CollectedID int64
 	RepoIDs     []int64
 	Page        int
 	IsClosed    bool
@@ -969,6 +974,52 @@ func buildIssuesQuery(opts *IssuesOptions) *xorm.Session {
 
 	return sess
 }
+//
+
+// buildIssuesQuery returns nil if it foresees there won't be any value returned.
+func buildIssuesCollectedQuery(opts *IssuesOptions) *xorm.Session {
+	sess := x.NewSession()
+	if opts.Page <= 0 {
+		opts.Page = 1
+	}
+	sess.Where("issue.is_closed=?", opts.IsClosed)
+
+	sess.And("issue.is_pull=?", opts.IsPull)
+
+	switch opts.SortType {
+	case "oldest":
+		sess.Asc("issue.created_unix")
+	case "recentupdate":
+		sess.Desc("issue.updated_unix")
+	case "leastupdate":
+		sess.Asc("issue.updated_unix")
+	case "mostcomment":
+		sess.Desc("issue.num_comments")
+	case "leastcomment":
+		sess.Asc("issue.num_comments")
+	case "priority":
+		sess.Desc("issue.priority")
+	default:
+		sess.Desc("issue.created_unix")
+	}
+
+	if len(opts.Labels) > 0 && opts.Labels != "0" {
+		labelIDs := strings.Split(opts.Labels, ",")
+		if len(labelIDs) > 0 {
+			sess.Join("INNER", "issue_label", "issue.id = issue_label.issue_id").In("issue_label.label_id", labelIDs)
+		}
+	}
+
+	if opts.IsMention {
+		sess.Join("INNER", "issue_user", "issue.id = issue_user.issue_id").And("issue_user.is_mentioned = ?", true)
+
+		if opts.UserID > 0 {
+			sess.And("issue_user.uid = ?", opts.UserID)
+		}
+	}
+
+	return sess
+}
 
 // IssuesCount returns the number of issues by given conditions.
 func IssuesCount(opts *IssuesOptions) (int64, error) {
@@ -988,6 +1039,27 @@ func Issues(opts *IssuesOptions) ([]*Issue, error) {
 	}
 	sess.Limit(setting.UI.IssuePagingNum, (opts.Page-1)*setting.UI.IssuePagingNum)
 
+	issues := make([]*Issue, 0, setting.UI.IssuePagingNum)
+	if err := sess.Find(&issues); err != nil {
+		return nil, fmt.Errorf("Find: %v", err)
+	}
+
+	// FIXME: use IssueList to improve performance.
+	for i := range issues {
+		if err := issues[i].LoadAttributes(); err != nil {
+			return nil, fmt.Errorf("LoadAttributes [%d]: %v", issues[i].ID, err)
+		}
+	}
+
+	return issues, nil
+}
+// Issues returns a list of issues by given conditions.
+func IssuesCollected(opts *IssuesOptions) ([]*Issue, error) {
+	sess := buildIssuesCollectedQuery(opts)
+	if sess == nil {
+		return make([]*Issue, 0), nil
+	}
+	sess.Limit(setting.UI.IssuePagingNum, (opts.Page-1)*setting.UI.IssuePagingNum)
 	issues := make([]*Issue, 0, setting.UI.IssuePagingNum)
 	if err := sess.Find(&issues); err != nil {
 		return nil, fmt.Errorf("Find: %v", err)
@@ -1140,7 +1212,7 @@ func GetIssueUserPairsByMode(userID, repoID int64, filterMode FilterMode, isClos
 	case FILTER_MODE_CREATE:
 		sess.And("is_poster=?", true)
 	case FILTER_MODE_COLLECTE:
-		sess.And("is_collected=?", true)
+
 	default:
 		return ius, nil
 	}
@@ -1255,6 +1327,34 @@ func GetIssueStats(opts *IssueStatsOptions) *IssueStats {
 
 		return sess
 	}
+	countCollected := func(opts *IssueStatsOptions,isClose bool) *xorm.Session {
+		sess := x.Where("issue.is_pull = ?", opts.IsPull).And("issue.is_closed = ?", isClose)
+		if len(opts.Labels) > 0 && opts.Labels != "0" {
+			labelIDs := tool.StringsToInt64s(strings.Split(opts.Labels, ","))
+			if len(labelIDs) > 0 {
+				sess.Join("INNER", "issue_label", "issue.id = issue_id").In("label_id", labelIDs)
+			}
+		}
+		return sess
+	}
+	//
+	countCollected_:= func(opts *IssueStatsOptions,userID int64,isClose bool) (CollectedCount int64){
+		countCollected(opts,isClose).
+		Iterate((new(Issue)), func(i int, bean interface{})error{
+			issue := bean.(*Issue)
+			arr:=strings.Split(issue.CollectedUsers,",")
+			for _, value := range arr {
+				if value!="" {
+					Id,_:=strconv.ParseInt(value,10,64)
+					if Id==userID{
+						CollectedCount++
+					}
+				}
+			}
+			return nil
+		})
+		return
+	}
 
 	switch opts.FilterMode {
 	case FILTER_MODE_YOUR_REPOS, FILTER_MODE_ASSIGN:
@@ -1290,7 +1390,8 @@ func GetIssueStats(opts *IssueStatsOptions) *IssueStats {
 			And("issue.is_closed = ?", true).
 			Count(new(Issue))
 	case FILTER_MODE_COLLECTE:
-
+			stats.OpenCount = countCollected_(opts,opts.UserID,false)
+			stats.ClosedCount = countCollected_(opts,opts.UserID,true)
 	}
 	return stats
 }
@@ -1311,6 +1412,11 @@ func GetUserIssueStats(repoID, userID int64, repoIDs []int64, filterMode FilterM
 		return sess
 	}
 
+	countSession_ := func(isClosed, isPull bool) *xorm.Session {
+		sess := x.Where("issue.is_closed = ?", isClosed).And("issue.is_pull = ?", isPull)
+		return sess
+	}
+
 	stats.AssignCount, _ = countSession(false, isPull, repoID, nil).
 		And("assignee_id = ?", userID).
 		Count(new(Issue))
@@ -1319,9 +1425,9 @@ func GetUserIssueStats(repoID, userID int64, repoIDs []int64, filterMode FilterM
 		And("poster_id = ?", userID).
 		Count(new(Issue))
 	//--------------------
-	countCollectedCount:= func(isClosed ,isPull bool, repoID int64) int64 {
+	countCollectedCount:= func(isClosed ,isPull bool) int64 {
 		var CollectedCount int64
-		countSession(isClosed, isPull, repoID, nil).
+		countSession_(isClosed, isPull).
 			Iterate((new(Issue)), func(i int, bean interface{})error{
 				issue := bean.(*Issue)
 				arr:=strings.Split(issue.CollectedUsers,",")
@@ -1337,7 +1443,7 @@ func GetUserIssueStats(repoID, userID int64, repoIDs []int64, filterMode FilterM
 			})
 		return CollectedCount
 	}
-	stats.CollectedCount = countCollectedCount(false, isPull, repoID)
+	stats.CollectedCount = countCollectedCount(false, isPull)
 	//---------------------
 	if hasAnyRepo {
 		stats.YourReposCount, _ = countSession(false, isPull, repoID, repoIDs).
@@ -1369,11 +1475,9 @@ func GetUserIssueStats(repoID, userID int64, repoIDs []int64, filterMode FilterM
 			And("poster_id = ?", userID).
 			Count(new(Issue))
 	case FILTER_MODE_COLLECTE:
-		stats.OpenCount  =  countCollectedCount(false, isPull, repoID)
-
-		stats.ClosedCount = countCollectedCount(true, isPull, repoID)
+		stats.OpenCount  =  countCollectedCount(false, isPull)
+		stats.ClosedCount = countCollectedCount(true, isPull)
 	}
-
 	return stats
 }
 
@@ -1386,9 +1490,13 @@ func GetRepoIssueStats(repoID, userID int64, filterMode FilterMode, isPull bool)
 
 		return sess
 	}
-	countCollectedCount:= func(isClosed ,isPull bool, repoID int64) int64 {
+	countSession_ := func(isClosed, isPull bool) *xorm.Session {
+		sess := x.Where("issue.is_pull = ?", isPull)
+		return sess
+	}
+	countCollectedCount:= func(isClosed ,isPull bool) int64 {
 		var CollectedCount int64
-		countSession(isClosed, isPull, repoID).
+		countSession_(isClosed, isPull).
 			Iterate((new(Issue)), func(i int, bean interface{})error{
 				issue := bean.(*Issue)
 				arr:=strings.Split(issue.CollectedUsers,",")
@@ -1417,8 +1525,8 @@ func GetRepoIssueStats(repoID, userID int64, filterMode FilterMode, isPull bool)
 		openCountSession.And("poster_id = ?", userID)
 		closedCountSession.And("poster_id = ?", userID)
 	case FILTER_MODE_COLLECTE:
-		openResult := countCollectedCount(false, isPull, repoID)
-		closedResult := countCollectedCount(true, isPull, repoID)
+		openResult := countCollectedCount(false, isPull)
+		closedResult := countCollectedCount(true, isPull)
 		return openResult,closedResult
 	}
 
@@ -1462,20 +1570,35 @@ func updateIssueUserByAssignee(e *xorm.Session, issue *Issue) (err error) {
 
 	return updateIssue(e, issue)
 }
-
+//
+func updateIssueUserOthers(e *xorm.Session, issue *Issue,userId int64,baseTest,edgeTest int64,isCertainBug bool) (err error) {
+	fmt.Print(checkExist(e,issue,userId))
+		issue.CollectedUsers = issue.CollectedUsers+","+strconv.FormatInt(userId,10)
+		issue.CollectedNum=issue.CollectedNum+1
+		issue.EdgeTestNum=edgeTest
+		issue.BaseTestNum=baseTest
+		if isCertainBug {
+			issue.IsCertain=1
+		}else {
+			issue.IsCertain=0
+		}
+		str:=fmt.Sprintf("update  `issue`  SET  base_test_num=?,edge_test_num=? ,is_certain=?  where id=?",issue.BaseTestNum,issue.EdgeTestNum,issue.IsCertain,issue.ID)
+		fmt.Println(str)
+		updateStr:= "update  `issue`  SET  base_test_num=?,edge_test_num=? ,is_certain=?  where id=?"
+		if _, err = e.Exec(updateStr,issue.BaseTestNum,issue.EdgeTestNum,issue.IsCertain,issue.ID); err != nil {
+			return err
+		}
+		return updateIssue(e, issue)
+}
+//
 func updateIssueUserByCollected(e *xorm.Session, issue *Issue,userId int64) (err error) {
 	if !checkExist(e,issue,userId) {
 		issue.CollectedUsers = issue.CollectedUsers+","+strconv.FormatInt(userId,10)
-		issueCollectedNum:=issue.CollectedNum+1
 		//updateStr:="UPDATE `issue` SET  collected_users ='"+issue.CollectedUsers+"'  WHERE id = "+strconv.FormatInt(issue.ID,10)
 		//updateCollectedNumStr:="UPDATE `issue` SET collected_num="+strconv.FormatInt(issueCollectedNum,10)+"  WHERE id = "+strconv.FormatInt(issue.ID,10)
-		//fmt.Println(updateStr)
-		updateStr:= "update  `issue` SET collected_users=? where id=?"
-		if _, err = e.Exec(updateStr,issue.CollectedUsers,issue.ID); err != nil {
-			return err
-		}
-		updateStr= "update  `issue` SET collected_num =? where id=?"
-		if _, err = e.Exec(updateStr,issueCollectedNum,issue.ID); err != nil {
+		issue.CollectedNum=issue.CollectedNum+1
+		updateStr:= "update  `issue` SET collected_num=?,collected_users=? where id=?"
+		if _, err = e.Exec(updateStr,issue.CollectedNum, issue.CollectedUsers,issue.ID); err != nil {
 			return err
 		}
 		return updateIssue(e, issue)
@@ -1509,6 +1632,18 @@ func UpdateIssueUserByAssignee(issue *Issue) (err error) {
 		return err
 	}
 
+	return sess.Commit()
+}
+// UpdateIssueUserByAssignee updates issue-user relation for assignee.
+func UpdateIssueUserOthers(issue *Issue,userId int64,baseTest,edgeTest int64,isCertainBug bool) (err error) {
+	sess := x.NewSession()
+	defer sess.Close()
+	if err = sess.Begin(); err != nil {
+		return err
+	}
+	if err = updateIssueUserOthers(sess,issue,userId,baseTest,edgeTest,isCertainBug); err != nil {
+		return err
+	}
 	return sess.Commit()
 }
 // UpdateIssueUserByAssignee updates issue-user relation for assignee.

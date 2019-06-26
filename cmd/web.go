@@ -526,6 +526,7 @@ func runWeb(c *cli.Context) error {
 				m.Post("/milestone", repo.UpdateIssueMilestone)
 				m.Post("/assignee", repo.UpdateIssueAssignee)
 				m.Get("/collected", repo.UpdateIssueCollectedUsers)
+				m.Get("/FormSubmit", repo.UpdateIssueOthers)
 		})
 
 	}, reqRepoWriter)
