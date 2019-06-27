@@ -78,14 +78,11 @@
 								<span class="comment ui right"><i class="octicon octicon-comment"></i> {{.NumComments}}</span>
 							{{end}}
 
-							<div style="color: #c71f7e">
-								<a class="ui label center"  >{{$.i18n.Tr "repo.issues.collected"}}</a>
-							</div>
 
 							<div>
 								<span class="ui right">
 									{{range .Labels}}
-										<a class="ui label" style="color: {{.ForegroundColor}}; background-color: {{.Color}}">{{.Name | Sanitize}}</a>
+										<a class="ui label" style="color: {{.ForegroundColor}}; background-color: {{.Color}}"  >{{.Name | Sanitize}}</a>
 									{{end}}
 								</span>
 							</div>

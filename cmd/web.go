@@ -490,6 +490,7 @@ func runWeb(c *cli.Context) error {
 		m.Get("/issues/:index", repo.ViewIssue)
 		m.Get("/labels/", repo.RetrieveLabels, repo.Labels)
 		m.Get("/milestones", repo.Milestones)
+
 	}, ignSignIn, context.RepoAssignment(true))
 	m.Group("/:username/:reponame", func() {
 		// FIXME: should use different URLs but mostly same logic for comments of issue and pull reuqest.
@@ -524,8 +525,10 @@ func runWeb(c *cli.Context) error {
 				m.Post("/label", repo.UpdateIssueLabel)
 				m.Post("/milestone", repo.UpdateIssueMilestone)
 				m.Post("/assignee", repo.UpdateIssueAssignee)
-			}, reqRepoWriter)
+				m.Get("/collected", repo.UpdateIssueCollectedUsers)
 		})
+
+	}, reqRepoWriter)
 		m.Group("/labels", func() {
 			m.Post("/new", bindIgnErr(form.CreateLabel{}), repo.NewLabel)
 			m.Post("/edit", bindIgnErr(form.CreateLabel{}), repo.UpdateLabel)

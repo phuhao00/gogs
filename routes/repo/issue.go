@@ -37,7 +37,6 @@ const (
 	MILESTONE      = "repo/issue/milestones"
 	MILESTONE_NEW  = "repo/issue/milestone_new"
 	MILESTONE_EDIT = "repo/issue/milestone_edit"
-
 	ISSUE_TEMPLATE_KEY = "IssueTemplate"
 )
 
@@ -91,7 +90,6 @@ func RetrieveLabels(c *context.Context) {
 }
 
 func issues(c *context.Context, isPullList bool) {
-	fmt.Println("fsdfasfdf----+++++++++++++++++++++++++------------")
 	if isPullList {
 		MustAllowPulls(c)
 		if c.Written() {
@@ -138,7 +136,7 @@ func issues(c *context.Context, isPullList bool) {
 	case "mentioned":
 		filterMode = models.FILTER_MODE_MENTION
 	case "collected":
-		//filterMode = models.FILTER_MODE_COLLECT
+
 	}
 	var uid int64 = -1
 
@@ -190,10 +188,6 @@ func issues(c *context.Context, isPullList bool) {
 	if err != nil {
 		c.Handle(500, "Issues", err)
 		return
-	}
-	for _, value := range issues {
-		fmt.Println(value.CollectedUsers)
-		fmt.Println("fsdfasfdf-----------------------------------------")
 	}
 	// Get issue-user relations.
 	pairs, err := models.GetIssueUsers(repo.ID, posterID, isShowClosed)
@@ -525,6 +519,12 @@ func viewIssue(c *context.Context, isPullList bool) {
 		c.NotFoundOrServerError("GetIssueByIndex", errors.IsIssueNotExist, err)
 		return
 	}
+	collectedArr:=strings.Split(issue.CollectedUsers,",")
+	for _,val:=range collectedArr{
+		if val!="" {
+			issue.CollectedNum++
+		}
+	}
 	c.Data["Title"] = issue.Title
 
 	// Make sure type and URL matches.
@@ -826,6 +826,7 @@ func UpdateIssueMilestone(c *context.Context) {
 }
 
 func UpdateIssueAssignee(c *context.Context) {
+	fmt.Println("kkkkkkkkkkkkkkkkk")
 	issue := getActionIssue(c)
 	if c.Written() {
 		return
@@ -844,6 +845,21 @@ func UpdateIssueAssignee(c *context.Context) {
 		return
 	}
 
+	c.JSON(200, map[string]interface{}{
+		"ok": true,
+	})
+}
+
+func UpdateIssueCollectedUsers(c *context.Context) {
+	issue := getActionIssue(c)
+	if c.Written() {
+		return
+	}
+	fmt.Println( issue.ID)
+	if err := issue.ChangeCollectedUsers(c.User, issue.ID); err != nil {
+		c.Handle(500, "UpdateCollectedUsers", err)
+		return
+	}
 	c.JSON(200, map[string]interface{}{
 		"ok": true,
 	})

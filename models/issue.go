@@ -601,6 +601,14 @@ func (issue *Issue) ChangeContent(doer *User, content string) (err error) {
 	return nil
 }
 
+func (issue *Issue)ChangeCollectedUsers(doer *User, userId int64) (err error) {
+
+	if err:=UpdateIssueUserByCollected(issue,userId);err != nil  {
+		return fmt.Errorf("UpdateIssueUserByCollected: %v", err)
+	}
+	return nil
+}
+
 func (issue *Issue) ChangeAssignee(doer *User, assigneeID int64) (err error) {
 	issue.AssigneeID = assigneeID
 	if err = UpdateIssueUserByAssignee(issue); err != nil {
@@ -978,7 +986,6 @@ func Issues(opts *IssuesOptions) ([]*Issue, error) {
 	if sess == nil {
 		return make([]*Issue, 0), nil
 	}
-
 	sess.Limit(setting.UI.IssuePagingNum, (opts.Page-1)*setting.UI.IssuePagingNum)
 
 	issues := make([]*Issue, 0, setting.UI.IssuePagingNum)
@@ -1219,7 +1226,6 @@ type IssueStatsOptions struct {
 	UserID      int64
 	Labels      string
 	MilestoneID int64
-	CollectedID int64
 	AssigneeID  int64
 	FilterMode  FilterMode
 	IsPull      bool
@@ -1284,14 +1290,7 @@ func GetIssueStats(opts *IssueStatsOptions) *IssueStats {
 			And("issue.is_closed = ?", true).
 			Count(new(Issue))
 	case FILTER_MODE_COLLECTE:
-		stats.OpenCount, _ = countSession(opts).
-			And("collected_id = ?", opts.UserID).
-			And("is_closed = ?", false).
-			Count(new(Issue))
-		stats.ClosedCount, _ = countSession(opts).
-			And("collected_id = ?", opts.UserID).
-			And("is_closed = ?", true).
-			Count(new(Issue))
+
 	}
 	return stats
 }
@@ -1325,14 +1324,14 @@ func GetUserIssueStats(repoID, userID int64, repoIDs []int64, filterMode FilterM
 		countSession(isClosed, isPull, repoID, nil).
 			Iterate((new(Issue)), func(i int, bean interface{})error{
 				issue := bean.(*Issue)
-				var tmpStr string
-				tmpStr=strconv.FormatInt(int64(userID), 10)
-				if len(strings.Split(issue.CollectedUsers, ","))>1 {
-					tmpStr=tmpStr+","
-				}
-				isContain:=strings.Contains(issue.CollectedUsers,tmpStr)
-				if isContain {
-					CollectedCount++
+				arr:=strings.Split(issue.CollectedUsers,",")
+				for _, value := range arr {
+					if value!="" {
+						Id,_:=strconv.ParseInt(value,10,64)
+						if Id==userID{
+							CollectedCount++
+						}
+					}
 				}
 				return nil
 			})
@@ -1370,7 +1369,6 @@ func GetUserIssueStats(repoID, userID int64, repoIDs []int64, filterMode FilterM
 			And("poster_id = ?", userID).
 			Count(new(Issue))
 	case FILTER_MODE_COLLECTE:
-
 		stats.OpenCount  =  countCollectedCount(false, isPull, repoID)
 
 		stats.ClosedCount = countCollectedCount(true, isPull, repoID)
@@ -1393,14 +1391,14 @@ func GetRepoIssueStats(repoID, userID int64, filterMode FilterMode, isPull bool)
 		countSession(isClosed, isPull, repoID).
 			Iterate((new(Issue)), func(i int, bean interface{})error{
 				issue := bean.(*Issue)
-				var tmpStr string
-				tmpStr=strconv.FormatInt(int64(userID), 10)
-				if len(strings.Split(issue.CollectedUsers, ","))>1 {
-					tmpStr=tmpStr+","
-				}
-				isContain:=strings.Contains(issue.CollectedUsers,tmpStr)
-				if isContain {
-					CollectedCount++
+				arr:=strings.Split(issue.CollectedUsers,",")
+				for _, value := range arr {
+					if value!="" {
+						Id,_:=strconv.ParseInt(value,10,64)
+						if Id==userID{
+							CollectedCount++
+						}
+					}
 				}
 				return nil
 			})
@@ -1465,6 +1463,40 @@ func updateIssueUserByAssignee(e *xorm.Session, issue *Issue) (err error) {
 	return updateIssue(e, issue)
 }
 
+func updateIssueUserByCollected(e *xorm.Session, issue *Issue,userId int64) (err error) {
+	if !checkExist(e,issue,userId) {
+		issue.CollectedUsers = issue.CollectedUsers+","+strconv.FormatInt(userId,10)
+		issueCollectedNum:=issue.CollectedNum+1
+		//updateStr:="UPDATE `issue` SET  collected_users ='"+issue.CollectedUsers+"'  WHERE id = "+strconv.FormatInt(issue.ID,10)
+		//updateCollectedNumStr:="UPDATE `issue` SET collected_num="+strconv.FormatInt(issueCollectedNum,10)+"  WHERE id = "+strconv.FormatInt(issue.ID,10)
+		//fmt.Println(updateStr)
+		updateStr:= "update  `issue` SET collected_users=? where id=?"
+		if _, err = e.Exec(updateStr,issue.CollectedUsers,issue.ID); err != nil {
+			return err
+		}
+		updateStr= "update  `issue` SET collected_num =? where id=?"
+		if _, err = e.Exec(updateStr,issueCollectedNum,issue.ID); err != nil {
+			return err
+		}
+		return updateIssue(e, issue)
+	}
+	return nil
+}
+
+func checkExist(e *xorm.Session, issue *Issue,userId int64) (isExist bool)  {
+	issueM := new(Issue)
+	has, _ := e.Where("id=?", issue.ID).Get(issueM)
+	if has {
+		collectedUsers:=issueM.CollectedUsers
+		strArr:=strings.Split(collectedUsers,",")
+		for _, value := range strArr {
+			if value==strconv.FormatInt(userId,10) {
+				return true
+			}
+		}
+	}
+	return
+}
 // UpdateIssueUserByAssignee updates issue-user relation for assignee.
 func UpdateIssueUserByAssignee(issue *Issue) (err error) {
 	sess := x.NewSession()
@@ -1479,7 +1511,18 @@ func UpdateIssueUserByAssignee(issue *Issue) (err error) {
 
 	return sess.Commit()
 }
-
+// UpdateIssueUserByAssignee updates issue-user relation for assignee.
+func UpdateIssueUserByCollected(issue *Issue,userId int64) (err error) {
+	sess := x.NewSession()
+	defer sess.Close()
+	if err = sess.Begin(); err != nil {
+		return err
+	}
+	if err = updateIssueUserByCollected(sess, issue,userId); err != nil {
+		return err
+	}
+	return sess.Commit()
+}
 // UpdateIssueUserByRead updates issue-user relation for reading.
 func UpdateIssueUserByRead(uid, issueID int64) error {
 	_, err := x.Exec("UPDATE `issue_user` SET is_read=? WHERE uid=? AND issue_id=?", true, uid, issueID)

@@ -287,26 +287,25 @@ func Issues(c *context.Context) {
 	default:
 		issueOptions.CollectedTag=true
 	}
-	fmt.Println( issueOptions.CollectedTag)
+
 	issues, err := models.Issues(issueOptions)
 	if err != nil {
 		c.Handle(500, "Issues", err)
 		return
 	}
-	var tmpIssues []*models.Issue
-	for _, value := range issues {
-		var containStr string
-		containStr=strconv.FormatInt(ctxUser.ID, 10)
-		fmt.Println(ctxUser.ID)
-		CollectedCount:= len(strings.Split(value.CollectedUsers, ","))
-		if CollectedCount>1{
-			containStr=containStr+","
+	if issueOptions.CollectedTag{
+		var tmpIssues []*models.Issue
+		for _, issue := range issues {
+			CollectedArr:= strings.Split(issue.CollectedUsers, ",")
+			for _, value := range CollectedArr {
+				Id,_:=strconv.ParseInt(value,10,64)
+				if Id==ctxUser.ID {
+					tmpIssues=append(tmpIssues,issue)
+				}
+			}
 		}
-		if strings.Contains(value.CollectedUsers,containStr) {
-			tmpIssues=append(tmpIssues,value)
-		}
+		issues=tmpIssues
 	}
-	issues=tmpIssues
 	if repoID > 0 {
 		repo, err := models.GetRepositoryByID(repoID)
 		if err != nil {
@@ -330,6 +329,12 @@ func Issues(c *context.Context) {
 		if err = issue.Repo.GetOwner(); err != nil {
 			c.Handle(500, "GetOwner", fmt.Errorf("[#%d] %v", issue.RepoID, err))
 			return
+		}
+		CollectedArr:= strings.Split(issue.CollectedUsers, ",")
+		for _, value := range CollectedArr {
+			if value!="" {
+				issue.CollectedNum++
+			}
 		}
 	}
 
